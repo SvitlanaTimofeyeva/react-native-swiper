@@ -91,7 +91,8 @@ const styles = {
 
   buttonText: {
     fontSize: 50,
-    color: '#007aff'
+    color: '#007aff',
+    fontFamily: 'Arial'
   }
 }
 
@@ -206,9 +207,19 @@ export default class extends Component {
     this.loopJumpTimer && clearTimeout(this.loopJumpTimer)
   }
 
-  componentWillUpdate (nextProps, nextState) {
-    // If the index has changed, we notify the parent via the onIndexChanged callback
-    if (this.state.index !== nextState.index) this.props.onIndexChanged(nextState.index)
+  // componentWillUpdate (nextProps, nextState) {
+  //   // If the index has changed, we notify the parent via the onIndexChanged callback
+  //   if (this.state.index !== nextState.index) this.props.onIndexChanged(nextState.index)
+  // }
+  // componentDidUpdate (prevProps, prevState) {
+  //   if (this.state.index !== prevState.index) this.props.onIndexChanged(this.state.index)
+  // }
+
+  shouldComponentUpdate(nextProps, nextState) {
+    if (this.state.index !== nextState.index) this.props.onIndexChanged(nextState.index);
+    if (this.state.height !== nextState.height) return true
+    return false;
+  //  return false;
   }
 
   initState (props, updateIndex = false) {
@@ -394,8 +405,6 @@ export default class extends Component {
   updateIndex = (offset, dir, cb) => {
     const state = this.state
     let index = state.index
-    if (!this.internals.offset)   // Android not setting this onLayout first? https://github.com/leecade/react-native-swiper/issues/582
-      this.internals.offset = {}
     const diff = offset[dir] - this.internals.offset[dir]
     const step = dir === 'x' ? state.width : state.height
     let loopJump = false
@@ -458,6 +467,47 @@ export default class extends Component {
     if (this.internals.isScrolling || this.state.total < 2) return
     const state = this.state
     const diff = (this.props.loop ? 1 : 0) + index + this.state.index
+    let x = 0
+    let y = 0
+    if (state.dir === 'x') x = diff * state.width
+    if (state.dir === 'y') y = diff * state.height
+
+    if (Platform.OS !== 'ios') {
+      this.scrollView && this.scrollView[animated ? 'setPage' : 'setPageWithoutAnimation'](diff)
+    } else {
+      this.scrollView && this.scrollView.scrollTo({ x, y, animated })
+    }
+
+    // update scroll state
+    this.internals.isScrolling = true
+    this.setState({
+      autoplayEnd: false
+    })
+
+    // trigger onScrollEnd manually in android
+    if (!animated || Platform.OS !== 'ios') {
+      setImmediate(() => {
+        this.onScrollEnd({
+          nativeEvent: {
+            position: diff
+          }
+        })
+      })
+    }
+  }
+
+  /**
+   * Scroll to index
+   * @param  {number} index page
+   * @param  {bool} animated
+   */
+
+  scrollTo = (index, animated = true) => {
+    if (this.internals.isScrolling || this.state.total < 2 || index == this.state.index) return
+
+    const state = this.state
+    const diff = this.state.index + (index - this.state.index)
+
     let x = 0
     let y = 0
     if (state.dir === 'x') x = diff * state.width
@@ -621,17 +671,6 @@ export default class extends Component {
     this.scrollView = view;
   }
 
-  onPageScrollStateChanged = state => {
-    switch (state) {
-      case 'dragging':
-        return this.onScrollBegin();
-
-      case 'idle':
-      case 'settling':
-        if (this.props.onTouchEnd) this.props.onTouchEnd();
-    }
-  }
-
   renderScrollView = pages => {
     if (Platform.OS === 'ios') {
       return (
@@ -652,7 +691,6 @@ export default class extends Component {
       <ViewPagerAndroid ref={this.refScrollView}
         {...this.props}
         initialPage={this.props.loop ? this.state.index + 1 : this.state.index}
-        onPageScrollStateChanged={this.onPageScrollStateChanged}
         onPageSelected={this.onScrollEnd}
         key={pages.length}
         style={[styles.wrapperAndroid, this.props.style]}>
